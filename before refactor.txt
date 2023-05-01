@@ -1,0 +1,67 @@
+
+// this is for handling the webhook
+export async function handlePostRequest(request, response) {
+    console.log("Received POST request");
+    const messageNotification = request.body;
+  
+    if (messageNotification) {
+      const { entry } = messageNotification;
+      const { value: { contacts, messages } } = entry[0].changes[0];
+      if (contacts && messages) {
+        const { profile: { name } } = contacts[0];
+        const { type: msgType, from: fromNumber, text: { body: message } } = messages[0];
+    
+        console.log(message, fromNumber, name, msgType);
+  
+        const replyMessage = `Hello ${name}, we received your message: ${message}`;
+  
+        await sendMessage(fromNumber, replyMessage);
+    
+        response.status(200).send("ok");
+      }
+      else {
+        const { value: { statuses } } = entry[0].changes[0];
+        const status = statuses[0]["status"];
+        const conversation = statuses[0]["conversation"];
+        const pricing = statuses[0]["pricing"];
+        console.log("Received status notification", status, conversation, pricing);
+
+        response.status(200).send("ok");
+      }
+    } else {
+      response.status(400).send("Bad Request");
+      console.log(request)
+    }
+  }
+
+// this is for sending a message
+async function sendMessage(toPhoneNumber, messageContent) {
+  const apiUrl = `https://graph.facebook.com/v16.0/${process.env.PHONE_NUMBER_ID}/messages`;
+
+  try {
+    const response = await axios.post(
+      apiUrl,
+      {
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to: toPhoneNumber,
+        type: "text",
+        text: {
+          preview_url: false,
+          body: messageContent
+        }
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}`
+        }
+      }
+    );
+
+    console.log('Message sent successfully:');
+    // console.log('Message sent successfully:', response.data);
+  } catch (error) {
+    console.error('Error sending message:', error);
+  }
+}

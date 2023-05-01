@@ -1,0 +1,53 @@
+import express from "express";
+import { createServer } from "http";
+import bodyParser from "body-parser";
+
+const app = express();
+
+app.use(bodyParser.json());
+
+// Access Token
+//EAAIVWsdpDoQBAGZBxRXUaA0decjjBM6ZAPI8V7LFZAgD8p9qWiYYIF1dWygPHe6c4sZCFJVkf1Q4BWvIoSKkZClZCleMPgphH2VIFxUZClMxzS8MQ3M8n4pTUGPaSwyuhqFEixZBaplKN54NQVdUxEH8pyCs3hRiMwNSxMMXh5ex8cxTY1VfbZCEHBmF5GmZB960ODkMOwNsFu6wZDZD
+
+app.get("/", (request, response) => {
+  response.send("Hello world!");
+  console.log("Received GET request", request.query);
+  let queryParams = request.query;
+  if (queryParams != null) {
+    const mode = queryParams["hub.mode"];
+    if (mode == "subscribe") {
+      const verifyToken = queryParams["hub.verify_token"];
+      if (verifyToken == "hello") {
+        console.log("Verified token", queryParams["hub.challenge"]);
+        let challenge = queryParams["hub.challenge"];
+        response.status(200).json(parseInt(challenge));
+      } else {
+        const responseBody = "Error, wrong validation token";
+
+        response.status(403).json(responseBody);
+      }
+    }
+  }
+});
+
+app.post("/", (request, response) => {
+  console.log("Received POST request");
+  const messageNotification = request.body;
+  if (messageNotification != null) {
+    const name = messageNotification["entry"][0]["changes"][0]["value"]["contacts"][0]["profile"]["name"];
+    const msgType = messageNotification["entry"][0]["changes"][0]["value"]["messages"][0]["type"];
+    const fromNumber = messageNotification["entry"][0]["changes"][0]["value"]["messages"][0]["from"];
+    const message = messageNotification["entry"][0]["changes"][0]["value"]["messages"][0]["text"]["body"];
+    console.log(message, fromNumber, name, msgType)
+
+    response.status(200).send("ok");
+  } else {
+    response.status(400).send("Bad Request");
+  }
+});
+
+const server = createServer(app);
+
+server.listen(3000, () => {
+  console.log(`Server listening on port ${3000}`);
+});
