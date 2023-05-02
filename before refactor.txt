@@ -1,47 +1,104 @@
+import * as dotenv from 'dotenv';
+import fetch from 'node-fetch';
 
-// this is for handling the webhook
-export async function handlePostRequest(request, response) {
-    console.log("Received POST request");
-    const messageNotification = request.body;
-  
-    if (messageNotification) {
-      const { entry } = messageNotification;
-      const { value: { contacts, messages } } = entry[0].changes[0];
-      if (contacts && messages) {
-        const { profile: { name } } = contacts[0];
-        const { type: msgType, from: fromNumber, text: { body: message } } = messages[0];
-    
-        console.log(message, fromNumber, name, msgType);
-  
-        const replyMessage = `Hello ${name}, we received your message: ${message}`;
-  
-        await sendMessage(fromNumber, replyMessage);
-    
-        response.status(200).send("ok");
-      }
-      else {
-        const { value: { statuses } } = entry[0].changes[0];
-        const status = statuses[0]["status"];
-        const conversation = statuses[0]["conversation"];
-        const pricing = statuses[0]["pricing"];
-        console.log("Received status notification", status, conversation, pricing);
+dotenv.config();
 
-        response.status(200).send("ok");
-      }
+export function handleGetRequest(request, response) {
+  console.log("Received GET request", request.query);
+  let queryParams = request.query;
+
+  if (queryParams) {
+    const mode = queryParams["hub.mode"];
+    const verifyToken = queryParams["hub.verify_token"];
+    const challenge = queryParams["hub.challenge"];
+
+    if (mode === "subscribe" && verifyToken === "hello") {
+      console.log("Verified token", challenge);
+      response.status(200).json(parseInt(challenge));
     } else {
-      response.status(400).send("Bad Request");
-      console.log(request)
+      response.status(403).json("Error, wrong validation token");
     }
   }
+};
 
-// this is for sending a message
+export async function handlePostRequest(request, response) {
+  processNotification(request, response);
+}
+
+async function processNotification(request, response) {
+  console.log("Received POST request");
+  const messageNotification = request.body;
+
+  if (messageNotification) {
+    const { entry } = messageNotification;
+    const { changes } = entry[0];
+
+    if (changes[0].value.contacts && changes[0].value.messages) {
+      handleContactMessage(changes[0].value);
+    } else if (changes[0].value.statuses) {
+      handleStatusNotification(changes[0].value);
+    } else {
+      console.log("Another type of notification");
+    }
+
+    response.status(200).send("ok");
+  } else {
+    console.log(request);
+    response.status(400).send("Bad Request");
+  }
+}
+
+function generateReplyMessage(name, messageType) {
+  return `Hello ${name}, we received your message but we don't know how to handle *${messageType}* yet. So please send us a text message.`;
+}
+
+function handleTextMessage(name, message) {
+  if (message === "1") {
+    return "You selected 1";
+  } else if (message === "2") {
+    return "You selected 2";
+  } else {
+    return `Hello ${name}, we received your message: *${message}*
+      Please select one of the following options:
+      1. Option 1
+      2. Option 2
+    `;
+  }
+}
+
+function handleContactMessage(value) {
+  const { contacts, messages } = value;
+  const { profile: { name } } = contacts[0];
+  const { type: msgType, from: fromNumber } = messages[0];
+
+  console.log(msgType);
+
+  let replyMessage = msgType === 'text' ? handleTextMessage(name, messages[0].text.body) : generateReplyMessage(name, msgType);
+
+  sendMessage(fromNumber, replyMessage);
+  console.log(fromNumber, name, msgType);
+}
+
+function handleStatusNotification(value) {
+  const { statuses } = value;
+  const status = statuses[0]["status"];
+  const conversation = statuses[0]["conversation"];
+  const pricing = statuses[0]["pricing"];
+
+  console.log("Received status notification");
+}
+
 async function sendMessage(toPhoneNumber, messageContent) {
   const apiUrl = `https://graph.facebook.com/v16.0/${process.env.PHONE_NUMBER_ID}/messages`;
 
   try {
-    const response = await axios.post(
-      apiUrl,
-      {
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}`
+      },
+      body: JSON.stringify({
         messaging_product: "whatsapp",
         recipient_type: "individual",
         to: toPhoneNumber,
@@ -50,18 +107,16 @@ async function sendMessage(toPhoneNumber, messageContent) {
           preview_url: false,
           body: messageContent
         }
-      },
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}`
-        }
-      }
-    );
+      })
+    });
 
-    console.log('Message sent successfully:');
-    // console.log('Message sent successfully:', response.data);
+    if (response.ok) {
+      console.log('Message sent successfully.');
+    } else {
+      console.error('Error sending message: ', response.statusText);
+    }
   } catch (error) {
-    console.error('Error sending message:', error);
+    console.error('Error sending message: ', error);
   }
 }
+

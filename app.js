@@ -1,29 +1,19 @@
-import express from "express";
-import { createServer } from "http";
-import bodyParser from "body-parser";
-import * as dotenv from 'dotenv';
+import express from 'express';
 
-import { handleGetRequest, handlePostRequest } from "./routes/index.js";
-
-dotenv.config();
+import webhookRoutes from './routes/webhookRoutes.js';
 
 const app = express();
+const port = process.env.PORT || 3000;
 
-app.use(bodyParser.json());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-app.get("/", handleGetRequest);
-app.post("/", handlePostRequest);
+app.use('/', webhookRoutes);
 
-const server = createServer(app);
-
-const startServer = async () => {
-  try {
-    server.listen(3000, () => {
-      console.log(`Server listening on port http://localhost:${3000}`);
-    });
-  } catch (error) {
-    console.log(error);
-  }
-};
-
-startServer();
+app.listen(port, () => {
+    try {
+      console.log(`Listening on port ${port}`);
+    } catch (error) {
+      console.error(error);
+    }
+});
