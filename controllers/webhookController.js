@@ -1,4 +1,4 @@
-import { handleTextMessage, generateReplyMessage, sendMessage } from '../models/messageModel.js';
+import { handleTextMessage, notTextMsg, sendMessage } from '../models/messageModel.js';
 
 export const verifyWebhook = async (request, response) => {
     console.log("Received GET request", request.query);
@@ -27,9 +27,9 @@ export const processNotification = async (request, response) => {
       const { changes } = entry[0];
   
       if (changes[0].value.contacts && changes[0].value.messages) {
-        handleContactMessage(changes[0].value);
+        await handleContactMessage(changes[0].value);
       } else if (changes[0].value.statuses) {
-        handleStatusNotification(changes[0].value);
+        await handleStatusNotification(changes[0].value);
       } else {
         console.log("Another type of notification");
       }
@@ -46,13 +46,13 @@ export const handleContactMessage = async (value) => {
     const { profile: { name } } = contacts[0];
     const { type: msgType, from: fromNumber } = messages[0];
   
-    let replyMessage = msgType === 'text' ? handleTextMessage(name, messages[0].text.body) : generateReplyMessage(name, msgType);
+    let replyMessage = msgType === 'text' ? await handleTextMessage(name, messages[0].text.body, fromNumber) : await notTextMsg(name, msgType);
   
-    sendMessage(fromNumber, replyMessage);
+    await sendMessage(fromNumber, replyMessage);
     console.log(fromNumber, name, msgType);
 }
 
-export const handleStatusNotification = (value) => {
+export const handleStatusNotification = async (value) => {
     const { statuses } = value;
     const status = statuses[0]["status"];
     const conversation = statuses[0]["conversation"];

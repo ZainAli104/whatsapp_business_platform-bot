@@ -1,102 +1,130 @@
-import * as dotenv from 'dotenv';
-import fetch from 'node-fetch';
+import fetch from "node-fetch";
+import * as dotenv from "dotenv";
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+const admin = require('firebase-admin');
+const { usersCollectionPromise } = require('../firebase/connect.cjs');
 
 dotenv.config();
 
-export function handleGetRequest(request, response) {
-  console.log("Received GET request", request.query);
-  let queryParams = request.query;
+export const handleTextMessage = async (name, message, number) => {
+  console.log(message, number);
+  const usersCollection = await usersCollectionPromise;
+  let user = (await usersCollection.doc(number).get()).data();  
 
-  if (queryParams) {
-    const mode = queryParams["hub.mode"];
-    const verifyToken = queryParams["hub.verify_token"];
-    const challenge = queryParams["hub.challenge"];
 
-    if (mode === "subscribe" && verifyToken === "hello") {
-      console.log("Verified token", challenge);
-      response.status(200).json(parseInt(challenge));
+  if (!user) {
+    user = {
+      name: name,
+      number: number,
+      messages: {
+        received: [],
+        sent: [],
+      },
+      state: "new",
+      lastAction: "",
+    };
+    await usersCollection.doc(number).set(user);
+  } else {
+    await usersCollection.doc(number).update({
+      "messages.received": admin.firestore.FieldValue.arrayUnion(message),
+    });
+  }
+
+  if (user.state === "new") {
+    await usersCollection.doc(number).update({
+      state: "menu",
+    });  
+    return `Hello ${name}, welcome!
+
+Please select one of the following product categories:
+1. Electronics
+2. Clothing
+3. Food
+4. Furniture`;
+  } else if (user.state === "menu") {
+    if (message == "1") {
+      await usersCollection.doc(number).update({
+        state: "electronics",
+      });
+    
+      return `You selected Electronics category.
+
+Please choose a product:
+1. Smartphone
+2. Laptop
+3. Television`;
+    } else if (message == "2") {
+      await usersCollection.doc(number).update({
+        state: "clothing",
+      });
+    
+      return `You selected Clothing category.
+
+Please choose a product:
+1. Shirt
+2. Pants
+3. Dress`;
+    } else if (message == "3") {
+      await usersCollection.doc(number).update({
+        state: "food",
+      });
+    
+      return `You selected Food category.
+
+Please choose a product:
+1. Pizza
+2. Burger
+3. Salad`;
+    } else if (message == "4") {
+      await usersCollection.doc(number).update({
+        state: "furniture",
+      });
+    
+      return `You selected Furniture category.
+
+Please choose a product:
+1. Sofa
+2. Bed
+3. Table`;
     } else {
-      response.status(403).json("Error, wrong validation token");
+      return `Invalid selection. Please select one of the following product categories:
+1. Electronics
+2. Clothing
+3. Food
+4. Furniture`;
     }
+  } else if (
+    ["electronics", "clothing", "food", "furniture"].includes(user.state)
+  ) {
+    return `You requested product: *${message}*. We will process your request and get back to you shortly.`;
+  } else {
+    return `Unknown command. Please select one of the following product categories:
+1. Electronics
+2. Clothing
+3. Food
+4. Furniture`;
   }
 };
 
-export async function handlePostRequest(request, response) {
-  processNotification(request, response);
-}
+export const notTextMsg = async (name, messageType) => {
+  return `Hello ${name}, we received your message but we don't know how to handle *${messageType}* yet. 
+So please send us a text message.`;
+};
 
-async function processNotification(request, response) {
-  console.log("Received POST request");
-  const messageNotification = request.body;
-
-  if (messageNotification) {
-    const { entry } = messageNotification;
-    const { changes } = entry[0];
-
-    if (changes[0].value.contacts && changes[0].value.messages) {
-      handleContactMessage(changes[0].value);
-    } else if (changes[0].value.statuses) {
-      handleStatusNotification(changes[0].value);
-    } else {
-      console.log("Another type of notification");
-    }
-
-    response.status(200).send("ok");
-  } else {
-    console.log(request);
-    response.status(400).send("Bad Request");
-  }
-}
-
-function generateReplyMessage(name, messageType) {
-  return `Hello ${name}, we received your message but we don't know how to handle *${messageType}* yet. So please send us a text message.`;
-}
-
-function handleTextMessage(name, message) {
-  if (message === "1") {
-    return "You selected 1";
-  } else if (message === "2") {
-    return "You selected 2";
-  } else {
-    return `Hello ${name}, we received your message: *${message}*
-      Please select one of the following options:
-      1. Option 1
-      2. Option 2
-    `;
-  }
-}
-
-function handleContactMessage(value) {
-  const { contacts, messages } = value;
-  const { profile: { name } } = contacts[0];
-  const { type: msgType, from: fromNumber } = messages[0];
-
-  console.log(msgType);
-
-  let replyMessage = msgType === 'text' ? handleTextMessage(name, messages[0].text.body) : generateReplyMessage(name, msgType);
-
-  sendMessage(fromNumber, replyMessage);
-  console.log(fromNumber, name, msgType);
-}
-
-function handleStatusNotification(value) {
-  const { statuses } = value;
-  const status = statuses[0]["status"];
-  const conversation = statuses[0]["conversation"];
-  const pricing = statuses[0]["pricing"];
-
-  console.log("Received status notification");
-}
-
-async function sendMessage(toPhoneNumber, messageContent) {
+export const sendMessage = async (
+  toPhoneNumber,
+  messageContent,
+  retries = 3
+) => {
   const apiUrl = `https://graph.facebook.com/v16.0/${process.env.PHONE_NUMBER_ID}/messages`;
 
   try {
     const response = await fetch(apiUrl, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}`
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}`,
       },
       body: JSON.stringify({
         messaging_product: "whatsapp",
@@ -105,18 +133,28 @@ async function sendMessage(toPhoneNumber, messageContent) {
         type: "text",
         text: {
           preview_url: false,
-          body: messageContent
-        }
-      })
+          body: messageContent,
+        },
+      }),
     });
 
     if (response.ok) {
-      console.log('Message sent successfully.');
+      console.log("Message sent successfully.");
     } else {
-      console.error('Error sending message: ', response.statusText);
+      console.error("Error sending message: ", response.statusText);
     }
   } catch (error) {
-    console.error('Error sending message: ', error);
-  }
-}
+    console.error("Error sending message: ", error);
 
+    if (retries > 0) {
+      console.log(`Retrying... attempts remaining: ${retries}`);
+      await new Promise((resolve) =>
+        setTimeout(resolve, 2 ** (3 - retries) * 1000)
+      ); // Exponential backoff
+      await sendMessage(toPhoneNumber, messageContent, retries - 1);
+    } else {
+      console.error("All retries exhausted. Message not sent.");
+      return;
+    }
+  }
+};
